@@ -11,6 +11,9 @@ pipeline {
       OPERATOR_DEPLOYED = false // 应用发布结果
       ACCEPTOR_ACCEPTED = false // 功能验收结果
     }
+    options {
+        skipDefaultCheckout()
+    }
     stages {
         stage ("打印构建参数") {
           steps {
