@@ -1,2 +1,2 @@
-# jenkins-library
-Jenkins共享库
+# jenkins
+Jenkinsfile配置和共享库

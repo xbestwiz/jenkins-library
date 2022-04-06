@@ -1,0 +1,25 @@
+@Library('jenkinslibs@master')_
+
+pipeline {
+  agent any
+
+  options {
+    skipDefaultCheckout()
+  }
+
+  stages {
+    stage("初始化步骤") {
+      steps {
+        script {
+          switch(params.env) {
+            case 'dev':
+              standardPipeline(params)
+              break
+            case 'uat':
+              break
+          }
+        }
+      }
+    }
+  }
+}
