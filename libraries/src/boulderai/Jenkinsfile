@@ -1,0 +1,290 @@
+def url = "http://172.16.3.5:8890/v1/openapi/dingtalk/sendmessage" // 发送钉钉消息接口地址
+def deployAppCode // 应用名称
+def deployBranch // 应用分支
+def deployContent // 发布内容
+def deployEnv // 发布环境 
+def randomToken // 随机校验码
+
+properties([
+  parameters([
+    [$class: 'CascadeChoiceParameter', 
+      choiceType: 'PT_SINGLE_SELECT', 
+      description: 'Select environment',
+      filterLength: 1,
+      filterable: false,
+      name: 'Environment', 
+      script: [
+        $class: 'GroovyScript', 
+        script: [
+          classpath: [], 
+          sandbox: false, 
+          script: 
+            'return[\'Development\',\'Production\']'
+        ]
+      ]
+    ]
+  ])
+])
+
+pipeline {
+    agent any
+    environment {
+      UAT_REQUESTED = false // 验证请求发送结果
+      UAT_VERIFIED = false // UAT环境验证结果
+      LEADER_APPROVED = false // LEADER审批结果
+      OPS_APPROVED = false // 运维审批结果
+      OPERATOR_DEPLOYED = false // 应用发布结果
+      ACCEPTOR_ACCEPTED = false // 功能验收结果
+    }
+    stages {
+        stage ("Example") {
+          steps {
+            script{
+              echo 'Hello'
+              echo "${params.Env}"
+              echo "${params.Server}"
+              if (params.Server.equals("Could not get Environment from Env Param")) {
+                  echo "Must be the first build after Pipeline deployment.  Aborting the build"
+                  currentBuild.result = 'ABORTED'
+                  return
+              }
+              echo "Crossed param validation"
+            }
+          }
+        }
+        stage('申请生产发布') {
+            input {
+              message '发布申请单'
+              ok '确定'
+              parameters {
+                choice(name: 'deployAppCode', description: '请选择要发布的应用', choices: 'workspace-service\neimos-data-dw')
+                choice(name: 'deployBranch', description: '请选择要发布的分支', choices: 'release_v0.10.1_qre\nrelease_v0.10.2_qre')
+                text(name: 'deployContent', description: '请填写本次发布的功能，每行一个功能点，以便产品经理验证', trim: true)
+                choice(name: 'deployEnv', description: '请选择要发布的环境', choices: '钱江电气\n雪蕾')
+                booleanParam(name: '已完成功能自测和集成测试')
+              }
+            }
+            steps {
+                script {
+                    println "${BRANCH_NAME}"
+                    println "${JOB_NAME}"
+                    /* if (env.deployContent == null) {
+                        error '发布内容不能为空，任务终止'
+                    } */
+                    try {
+                        // 初始化全局变量
+                        deployAppCode = "${env.deployAppCode}"
+                        deployBranch = "${env.deployBranch}"
+                        deployContent = "${env.deployContent}"
+                        deployEnv = "${env.deployEnv}"
+                        randomToken = "${Math.abs(new Random().nextInt(8999) + 1000)}"
+
+                        def requestBody = ["stage_name":"UAT验证","job_name":"${JOB_NAME}","app_code":"${deployAppCode}","branch":"${deployBranch}","build_number":"${BUILD_NUMBER}","build_user":"${BUILD_USER}","content":"${deployContent}","token":"${randomToken}"]
+                        def response = httpRequest contentType: 'APPLICATION_JSON',
+                            httpMode: 'POST',
+                            requestBody: groovy.json.JsonOutput.toJson(requestBody),
+                            url: "${url}",
+                            consoleLogResponseBody: true
+                        if (response.status == 200) {
+                          env.UAT_REQUESTED = true
+                        } else {
+                          println response
+                          error '发送UAT验证消息接口返回异常'
+                        }
+                    }
+                    catch (exc) {
+                        error '申请发送未成功，请联系运维'
+                    }
+                }
+            }
+        }
+        stage('UAT验证') {
+            when {
+              expression { env.UAT_REQUESTED }
+            }
+            steps {
+                script {
+                    timeout(time:4, unit:'HOURS') {
+                        try {
+                            def userInput = input(
+                              id: 'UAT验证', message: 'UAT验证', parameters: [
+                                [$class: 'StringParameterDefinition', name: 'token', defaultValue: '', description: '校验码']    
+                              ]
+                            )
+                            if (userInput == randomToken) {
+                                println '验证通过'
+                                randomToken = "${Math.abs(new Random().nextInt(8999) + 1000)}"
+                                def requestBody = ["stage_name":"主管审批","job_name":"${JOB_NAME}","app_code":"${deployAppCode}","branch":"${deployBranch}","build_number":"${BUILD_NUMBER}","build_user":"${BUILD_USER}","content":"${deployContent}","token":"${randomToken}"]
+                                def response = httpRequest contentType: 'APPLICATION_JSON',
+                                    httpMode: 'POST',
+                                    requestBody: groovy.json.JsonOutput.toJson(requestBody),
+                                    url: "${url}",
+                                    consoleLogResponseBody: true
+                                if (response.status == 200) {
+                                  env.UAT_VERIFIED = true
+                                } else {
+                                  println response
+                                  error '发送主管审批消息接口返回异常'
+                                }
+                            } else {
+                                println '校验码错误'
+                            }
+                        }
+                        catch (exc) {
+                            error 'UAT验证未通过，任务终止'
+                        }
+                    }
+                }
+            }
+            post {
+                aborted {
+                    echo "post condition executed: aborted ..."
+                }
+            }
+        }
+        stage('主管审批') {
+            when {
+              expression { env.UAT_VERIFIED }
+            }
+            steps {
+                script {
+                    timeout(time:4, unit:'HOURS') {
+                        try {
+                            def userInput = input(
+                              id: '主管审批', message: '主管审批', parameters: [
+                                [$class: 'StringParameterDefinition', name: 'token', defaultValue: '', description: '校验码']    
+                              ]
+                            )
+                            if (userInput == randomToken) {
+                                println '审批通过'
+                                randomToken = "${Math.abs(new Random().nextInt(8999) + 1000)}"
+                                def requestBody = ["stage_name":"运维审批","job_name":"${JOB_NAME}","app_code":"${deployAppCode}","branch":"${deployBranch}","build_number":"${BUILD_NUMBER}","build_user":"${BUILD_USER}","content":"${deployContent}","token":"${randomToken}"]
+                                def response = httpRequest contentType: 'APPLICATION_JSON',
+                                    httpMode: 'POST',
+                                    requestBody: groovy.json.JsonOutput.toJson(requestBody),
+                                    url: "${url}",
+                                    consoleLogResponseBody: true
+                                if (response.status == 200) {
+                                  env.LEADER_APPROVED = true
+                                } else {
+                                  println response
+                                  error '发送运维审批消息接口返回异常'
+                                }
+                            } else {
+                                println '校验码错误'
+                            }
+                        }
+                        catch (exc) {
+                            error '审批未通过，任务终止'
+                        }
+                    }
+                }
+            }
+        }
+        stage('运维审批') {
+            when {
+              expression { env.LEADER_APPROVED }
+            }
+            steps {
+                script {
+                    timeout(time:4, unit:'HOURS') {
+                        try {
+                            def userInput = input(
+                              id: '运维审批', message: '运维审批', parameters: [
+                                [$class: 'StringParameterDefinition', name: 'token', defaultValue: '', description: '校验码']    
+                              ]
+                            )
+                            if (userInput == randomToken) {
+                                println '审批通过'
+                                randomToken = "${Math.abs(new Random().nextInt(8999) + 1000)}"
+                                def requestBody = ["stage_name":"应用发布","job_name":"${JOB_NAME}","app_code":"${deployAppCode}","branch":"${deployBranch}","build_number":"${BUILD_NUMBER}","build_user":"${BUILD_USER}","content":"${deployContent}","token":"${randomToken}"]
+                                def response = httpRequest contentType: 'APPLICATION_JSON',
+                                    httpMode: 'POST',
+                                    requestBody: groovy.json.JsonOutput.toJson(requestBody),
+                                    url: "${url}",
+                                    consoleLogResponseBody: true
+                                if (response.status == 200) {
+                                  env.OPS_APPROVED = true
+                                } else {
+                                  println response
+                                  error '发送应用发布反馈消息接口返回异常'
+                                }
+                            } else {
+                                println '校验码错误'
+                            }
+                        }
+                        catch (exc) {
+                            error '审批未通过，任务终止'
+                        }
+                    }
+                }
+            }
+        }
+        stage('应用发布') {
+            when {
+              expression { env.OPS_APPROVED }
+            }
+            steps {
+                script {
+                    timeout(time:4, unit:'HOURS') {
+                        try {
+                            def userInput = input(
+                              id: '应用发布', message: '应用发布', parameters: [
+                                [$class: 'StringParameterDefinition', name: 'token', defaultValue: '', description: '校验码']    
+                              ]
+                            )
+                            if (userInput == randomToken) {
+                                println '发布成功'
+                                randomToken = "${Math.abs(new Random().nextInt(8999) + 1000)}"
+                                def requestBody = ["stage_name":"功能验收","job_name":"${JOB_NAME}","app_code":"${deployAppCode}","branch":"${deployBranch}","build_number":"${BUILD_NUMBER}","build_user":"${BUILD_USER}","content":"${deployContent}","token":"${randomToken}"]
+                                def response = httpRequest contentType: 'APPLICATION_JSON',
+                                    httpMode: 'POST',
+                                    requestBody: groovy.json.JsonOutput.toJson(requestBody),
+                                    url: "${url}",
+                                    consoleLogResponseBody: true
+                                if (response.status == 200) {
+                                  env.OPERATOR_DEPLOYED = true
+                                } else {
+                                  println response
+                                  error '发送功能验收消息接口返回异常'
+                                }
+                            } else {
+                                println '校验码错误'
+                            }
+                        }
+                        catch (exc) {
+                            error '发布未成功，任务终止'
+                        }
+                    }
+                }
+            }
+        }
+        stage('功能验收') {
+            when {
+              expression { env.OPERATOR_DEPLOYED }
+            }
+            steps {
+                script {
+                    timeout(time:4, unit:'HOURS') {
+                        try {
+                            def userInput = input(
+                              id: '功能验收', message: '功能验收', parameters: [
+                                [$class: 'StringParameterDefinition', name: 'token', defaultValue: '', description: '校验码']    
+                              ]
+                            )
+                            if (userInput == randomToken) {
+                                println '验收通过'
+                                env.ACCEPTOR_ACCEPTED = true
+                            } else {
+                                println '校验码错误'
+                            }
+                        }
+                        catch (exc) {
+                            error '验收未通过，任务终止'
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

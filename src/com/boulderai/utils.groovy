@@ -1,4 +1,4 @@
-package com.boulderai.cicd
+package com.boulderai
 
 /**
  * 清理当前工程的目录

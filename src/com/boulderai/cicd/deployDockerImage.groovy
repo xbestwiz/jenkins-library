@@ -1,18 +1,19 @@
 package com.boulderai.cicd
 
 import com.boulderai.globalVars
-import com.boulderai.cicd.utils
+import com.boulderai.utils
 
 /**
  * 部署docker镜像
- * @param app
- * @param docker_url
+ * @param app_code
  * @param branch
+ * @param private_docker_url
  * @return
  */
-def sDeployImage(Map params) {
+def deployDockerImage(Map params) {
   def utils = new utils()
   utils.printMessage("部署docker镜像", "green")
+
   sshPublisher(publishers: [
     sshPublisherDesc(
       configName: '172.16.6.170-slave', 
@@ -20,7 +21,7 @@ def sDeployImage(Map params) {
         sshTransfer(
           cleanRemote: false, 
           excludes: '', 
-          execCommand: "kubectl set image deployment/${params.app} ${params.app}=${globalVars.docker_url}/boulder-docker-local/${params.app}:${params.branch}.${env.BUILD_NUMBER} -n cutler",
+          execCommand: "kubectl set image deployment/${params.app_code} ${params.app_code}=${globalVars.private_docker_url}/boulder-docker-local/${params.app_code}:${params.branch}.${BUILD_NUMBER} -n ${}",
           execTimeout: 120000,
           flatten: false,
           makeEmptyDirs: false,

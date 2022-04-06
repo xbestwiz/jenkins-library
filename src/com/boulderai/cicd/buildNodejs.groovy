@@ -1,7 +1,7 @@
 package com.boulderai.cicd
 
 import com.boulderai.globalVars
-import com.boulderai.cicd.utils
+import com.boulderai.utils
 
 /**
  * 构建nodejs
@@ -10,15 +10,19 @@ import com.boulderai.cicd.utils
  * @param build_params
  * @return
  */
-def sBuildNodejs(Map params) {
+def buildNodejs(Map params) {
   def utils = new utils()
   utils.printMessage("构建nodejs", "green")
+
   nodejs('nodejs') {
     sh "npm i --unsafe-perm --registry ${globalVars.npm_url}"
-    if (params.bracnh == 'release') {
-      sh "npx vue-cli-service build ${params.build_params}"
-    } else {
-      sh "npm run build:${params.env}"
+    switch("${params.env}") {
+      case "online":
+      case "prod":
+        sh "npx vue-cli-service build ${params.build_params}"
+        break
+      default:
+        sh "npm run build:${params.env}"
     }
   }
 }

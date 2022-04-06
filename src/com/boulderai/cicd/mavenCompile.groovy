@@ -1,16 +1,17 @@
 package com.boulderai.cicd
 
 import com.boulderai.globalVars
-import com.boulderai.cicd.utils
+import com.boulderai.utils
 
 /**
  * 部署docker镜像
  * @param env
  * @return
  */
-def sMavenCompile(Map params) {
+def mavenCompile(Map params) {
   def utils = new utils()
   utils.printMessage("Maven编译", "green")
+
   withMaven(
     globalMavenSettingsFilePath: '/usr/local/maven/conf/settings.xml', 
     jdk: 'JDK1.8',
